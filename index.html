@@ -78,12 +78,41 @@ input[type=time]{color-scheme:dark;direction:ltr}
   padding:8px 16px;border-radius:14px;opacity:0;pointer-events:none;transition:all .3s;max-width:92vw;text-align:center;font-size:.92rem;z-index:9;display:flex;gap:12px;align-items:center}
 .toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .toast button{color:var(--accent);font-weight:700}
+
+body.locked .wrap,body.locked .addbar{display:none}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tools{display:flex;gap:4px}
+.tools .ib{background:var(--s1);border:1px solid var(--line)}
+.lock{position:fixed;inset:0;z-index:30;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
+.lock[hidden]{display:none}
+.lockcard{width:100%;max-width:360px;background:var(--s1);border:1px solid var(--line);border-radius:20px;padding:22px;display:flex;flex-direction:column;gap:10px;text-align:center}
+.lockcard[hidden],.lockcard input[hidden],.lockcard button[hidden]{display:none}
+.lockcard .lk{font-size:2.2rem}
+.lockcard h2{font-size:1.15rem}
+.lockcard input{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 12px;text-align:center}
+.err{color:var(--hot);font-size:.85rem;min-height:1.3em}
+.link{color:var(--muted);font-size:.82rem;text-decoration:underline}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
-<body>
+<body class="locked">
+<div class="lock" id="lock" hidden>
+  <div class="lockcard">
+    <div class="lk">🔒</div>
+    <h2 id="lkTitle"></h2>
+    <p class="hint" id="lkMsg"></p>
+    <input type="password" id="pOld" autocomplete="current-password">
+    <input type="password" id="pNew" placeholder="رمز جدید" autocomplete="new-password">
+    <input type="password" id="pNew2" placeholder="تکرار رمز جدید" autocomplete="new-password">
+    <p class="err" id="lkErr" role="alert"></p>
+    <button class="btn" id="lkOk" type="button"></button>
+    <button class="btn grey" id="lkCancel" type="button" hidden>انصراف</button>
+    <button class="link" id="lkForgot" type="button" hidden>رمز را فراموش کردم</button>
+  </div>
+</div>
 <div class="wrap">
-  <h1>Eli's <span>Weekly</span> Planner</h1>
+  <div class="top"><h1>Eli's <span>Weekly</span> Planner</h1>
+    <div class="tools"><button class="ib" id="chgBtn" type="button" title="تغییر رمز" aria-label="تغییر رمز">🔑</button><button class="ib" id="lockBtn" type="button" title="قفل کردن" aria-label="قفل کردن">🔒</button></div></div>
   <p class="sub">برنامه‌ریزی روزانه برای نجات از الگوهای دامن، جغرافیا و شلوغی‌ها! ✨</p>
 
   <section class="prio" aria-labelledby="pt">
@@ -218,6 +247,79 @@ $('form').addEventListener('submit',e=>e.preventDefault());
 $('addBtn').addEventListener('click',addTask);
 $('text').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();addTask()}});
 render();setInterval(clock,30000);
+// ===== قفل با رمز =====
+const AKEY='eli-weekly-planner-auth',enc=new TextEncoder();
+let auth=null,mode='login';
+try{auth=JSON.parse(localStorage.getItem(AKEY))}catch(e){}
+async function hashPw(pw,salt){
+  try{
+    if(window.crypto&&crypto.subtle){
+      const k=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveBits']);
+      const b=await crypto.subtle.deriveBits({name:'PBKDF2',salt:enc.encode(salt),iterations:150000,hash:'SHA-256'},k,256);
+      return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');
+    }
+  }catch(e){}
+  let a=0xdeadbeef,c=0x41c6ce57;const s=salt+':'+pw;
+  for(let i=0;i<s.length;i++){const x=s.charCodeAt(i);a=Math.imul(a^x,2654435761);c=Math.imul(c^x,1597334677)}
+  a=Math.imul(a^(a>>>16),2246822507)^Math.imul(c^(c>>>13),3266489909);
+  c=Math.imul(c^(c>>>16),2246822507)^Math.imul(a^(a>>>13),3266489909);
+  return 'f'+(c>>>0).toString(16)+(a>>>0).toString(16);
+}
+const lkErr=m=>$('lkErr').textContent=m;
+function showLock(m){
+  mode=m;lkErr('');
+  ['pOld','pNew','pNew2'].forEach(i=>{$(i).value='';$(i).hidden=true});
+  $('lkCancel').hidden=m!=='change';$('lkForgot').hidden=m!=='login';
+  if(m==='setup'){
+    $('lkTitle').textContent='یه رمز برای خودت بساز';
+    $('lkMsg').textContent='فقط با همین رمز می‌تونی وارد برنامه بشی. بعداً هر وقت خواستی با 🔑 عوضش کن.';
+    $('pNew').hidden=$('pNew2').hidden=false;$('lkOk').textContent='ثبت رمز و ورود';
+  }else if(m==='login'){
+    $('lkTitle').textContent='برنامه قفله';$('lkMsg').textContent='رمزت رو وارد کن.';
+    $('pOld').placeholder='رمز عبور';$('pOld').hidden=false;$('lkOk').textContent='ورود';
+  }else{
+    $('lkTitle').textContent='تغییر رمز';$('lkMsg').textContent='';
+    $('pOld').placeholder='رمز فعلی';$('pOld').hidden=$('pNew').hidden=$('pNew2').hidden=false;$('lkOk').textContent='ذخیره رمز جدید';
+  }
+  if(m!=='change')document.body.classList.add('locked');
+  $('lock').hidden=false;
+  setTimeout(()=>$(m==='setup'?'pNew':'pOld').focus(),50);
+}
+function unlock(){
+  $('lock').hidden=true;document.body.classList.remove('locked');
+  try{sessionStorage.setItem('eli-unlocked','1')}catch(e){}
+}
+async function lkSubmit(){
+  lkErr('');const o=$('pOld').value,n=$('pNew').value,n2=$('pNew2').value;
+  if(mode==='login'){
+    if(await hashPw(o,auth.salt)===auth.hash)unlock();else{lkErr('رمز اشتباهه 🙈');$('pOld').value='';$('pOld').focus()}
+    return;
+  }
+  if(mode==='change'&&await hashPw(o,auth.salt)!==auth.hash){lkErr('رمز فعلی اشتباهه');return}
+  if(n.length<4){lkErr('رمز باید حداقل ۴ کاراکتر باشه');return}
+  if(n!==n2){lkErr('تکرار رمز با رمز بالا یکی نیست');return}
+  const salt=uid()+uid();
+  auth={salt,hash:await hashPw(n,salt)};
+  try{localStorage.setItem(AKEY,JSON.stringify(auth))}catch(e){}
+  if(mode==='change'){$('lock').hidden=true;toast('رمز تغییر کرد ✅')}else unlock();
+}
+$('lkOk').addEventListener('click',lkSubmit);
+$('lkCancel').addEventListener('click',()=>{$('lock').hidden=true});
+['pOld','pNew','pNew2'].forEach(i=>$(i).addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();lkSubmit()}}));
+$('lkForgot').addEventListener('click',()=>{
+  if(confirm('اگه رمز رو ریست کنی، همه کارها و رمز پاک می‌شن. مطمئنی؟')){
+    try{localStorage.removeItem(KEY);localStorage.removeItem(AKEY);sessionStorage.removeItem('eli-unlocked')}catch(e){}
+    location.reload();
+  }
+});
+$('lockBtn').addEventListener('click',()=>{try{sessionStorage.removeItem('eli-unlocked')}catch(e){}showLock('login')});
+$('chgBtn').addEventListener('click',()=>showLock('change'));
+(function(){
+  if(!auth||!auth.hash){showLock('setup');return}
+  let ok=false;try{ok=sessionStorage.getItem('eli-unlocked')==='1'}catch(e){}
+  if(ok)document.body.classList.remove('locked');else showLock('login');
+})();
+
 </script>
 </body>
 </html>
